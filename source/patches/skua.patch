@@ -264,7 +264,7 @@ index 0876301a..e4a805a6 100644
 -
 -const RELEASES_API: &str = "https://api.github.com/repos/mugetsu-aqw/mugetsu/releases/latest";
 -const RELEASES_PAGE: &str = "https://github.com/mugetsu-aqw/mugetsu/releases/latest";
-+pub const VERSION: &str = "1.6.0-skua.1";
++pub const VERSION: &str = "1.6.0-skua.4";
  
  // --- Window title -------------------------------------------------------------------------
  
