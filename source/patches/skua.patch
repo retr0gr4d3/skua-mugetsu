@@ -119,7 +119,7 @@ index 1f648131..da4a894f 100644
              (Some(main_window), RuffleEvent::MugetsuSetting(setting)) => {
                  main_window.apply_setting(setting);
              }
-@@ -2497,3 +2529,16 @@ fn unbatched_mouse_moves() -> bool {
+@@ -2497,3 +2529,18 @@ fn unbatched_mouse_moves() -> bool {
      static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
      *ENABLED.get_or_init(|| std::env::var_os("RUFFLE_UNBATCHED_MOUSE").is_some())
  }
@@ -128,6 +128,8 @@ index 1f648131..da4a894f 100644
 +#[cfg_attr(not(windows), allow(unused_variables))]
 +fn skua_child_of(attributes: WindowAttributes, parent: u64) -> WindowAttributes {
 +    use winit::raw_window_handle::RawWindowHandle;
++    #[cfg(windows)]
++    crate::skua::set_parent(parent as isize);
 +    #[cfg(windows)]
 +    let handle = std::num::NonZeroIsize::new(parent as isize)
 +        .map(|hwnd| RawWindowHandle::Win32(winit::raw_window_handle::Win32WindowHandle::new(hwnd)));
@@ -184,11 +186,14 @@ index 1e4309d3..c04425ea 100644
          #[cfg(windows)]
          if crate::mugetsu::plays_aqw() {
              crate::windows::add_graphics_menu(&window, event_loop.clone());
-@@ -830,6 +832,10 @@ fn present_frame(
+@@ -830,6 +832,13 @@ fn present_frame(
              surface_texture
          }
          state @ (wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated) => {
-+            if crate::skua::active() && matches!(state, wgpu::CurrentSurfaceTexture::Lost) {
++            if crate::skua::active()
++                && matches!(state, wgpu::CurrentSurfaceTexture::Lost)
++                && crate::skua::host_gone()
++            {
 +                tracing::info!("Skua surface lost (host window closed), exiting");
 +                std::process::exit(0);
 +            }
@@ -248,15 +253,6 @@ index 557a8a77..00000000 100644
  
  const RELEASES_API: &str = "https://api.github.com/repos/mugetsu-aqw/mugetsu/releases/latest";
  const RELEASES_PAGE: &str = "https://github.com/mugetsu-aqw/mugetsu/releases/latest";
-@@ -42,7 +42,7 @@ fn config_dir() -> Option<PathBuf> {
-     dirs::config_local_dir().map(|dir| dir.join("ruffle"))
- }
- 
--/// A file named `name` next to Mugetsu's program exists (`verbose-log`, `no-update-check`).
-+/// A file named `name` next to Mugetsu's program exists (`verbose-log`, `no-atlas`).
- pub fn exe_flag(name: &str) -> bool {
-     // Also `name.txt`: Windows hides extensions, so a "new text document" renamed to `name`
-     // is really `name.txt`.
 @@ -1537,7 +1537,8 @@ pub fn spawn_update_check(
              };
              // `RUFFLE_TEST_UPDATE_FROM=0.9` pretends to be that version (testing).
@@ -288,7 +284,7 @@ new file mode 100644
 index 00000000..00000000
 --- /dev/null
 +++ b/desktop/src/skua.rs
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,372 @@
 +//! Skua build: lets Bonxie drive the game and show it inside its own window.
 +//!
 +//! With `--skua-bridge 127.0.0.1:port` the player connects to Bonxie over loopback TCP and both
@@ -341,6 +337,34 @@ index 00000000..00000000
 +
 +pub fn active() -> bool {
 +    ACTIVE.load(Ordering::Relaxed)
++}
++
++/// The `--skua-parent` window, 0 if none.
++#[cfg(windows)]
++static PARENT: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
++
++#[cfg(windows)]
++pub fn set_parent(hwnd: isize) {
++    PARENT.store(hwnd, Ordering::Relaxed);
++}
++
++/// Whether the window the game draws in is gone, on a lost surface. On Windows only when the
++/// `--skua-parent` window was destroyed: a GPU reset or driver update also loses the surface, and
++/// the player recovers from that. Elsewhere always: reconfiguring onto a destroyed X11 parent panics.
++#[cfg(windows)]
++pub fn host_gone() -> bool {
++    #[link(name = "user32")]
++    unsafe extern "system" {
++        fn IsWindow(hwnd: isize) -> i32;
++    }
++    let parent = PARENT.load(Ordering::Relaxed);
++    // SAFETY: IsWindow accepts any value, including handles of destroyed windows.
++    parent != 0 && unsafe { IsWindow(parent) } == 0
++}
++
++#[cfg(not(windows))]
++pub fn host_gone() -> bool {
++    true
 +}
 +
 +fn parse_loopback_addrs(addr: &str) -> std::io::Result<Vec<SocketAddr>> {
